@@ -1,197 +1,63 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
-function Shell({
-  title,
-  subtitle,
-  badge = "Portfolio demo · local-only",
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  badge?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-100">
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <header className="mb-8">
-          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{badge}</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-        </header>
-        {children}
-        <footer className="mt-10 border-t border-zinc-200 pt-4 text-xs text-zinc-500 dark:border-zinc-800">
-          Honest demo: no multi-tenant backend. State (if any) stays in this browser.
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-function Button({
-  children,
-  onClick,
-  variant = "primary",
-  disabled,
-  type = "button",
-  className = "",
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  disabled?: boolean;
-  type?: "button" | "submit";
-  className?: string;
-}) {
-  const base =
-    "inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-50 " +
-    className;
-  const styles =
-    variant === "primary"
-      ? "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
-      : variant === "secondary"
-        ? "bg-white text-zinc-900 ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700"
-        : variant === "danger"
-          ? "bg-red-600 text-white hover:bg-red-500"
-          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900";
-  return (
-    <button type={type} disabled={disabled} onClick={onClick} className={`${base} ${styles}`}>
-      {children}
-    </button>
-  );
-}
-
-const inputClass =
-  "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950";
+type Credential = { id: string; title: string; issuer: string; year: string; status: "Verified" | "In progress" | "Expired"; code: string };
+const SEED: Credential[] = [
+  { id: "aws", title: "AWS Solutions Architect", issuer: "Amazon Web Services", year: "2024", status: "Verified", code: "AWS-SAA-24" },
+  { id: "google", title: "Analytics Certification", issuer: "Google Skillshop", year: "2023", status: "Verified", code: "GA-23-BOOK" },
+  { id: "cloud", title: "Cloud Architecture Path", issuer: "Independent study", year: "2026", status: "In progress", code: "STUDY-26" },
+];
 
 function useLocalStorage<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(key);
-      if (raw != null) setValue(JSON.parse(raw) as T);
-    } catch {
-      /* ignore */
-    }
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        // Hydrate the browser-only credential ledger after the server-rendered passport.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setValue(JSON.parse(saved) as T);
+      }
+    } catch { /* Keep the sample credentials visible. */ }
     setReady(true);
   }, [key]);
-  useEffect(() => {
-    if (!ready) return;
-    localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value, ready]);
+  useEffect(() => { if (ready) localStorage.setItem(key, JSON.stringify(value)); }, [key, value, ready]);
   return [value, setValue] as const;
 }
 
-function uid() {
-  return crypto.randomUUID();
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-
-type Item = { id: string; title: string; body: string; status: string; createdAt: number };
-
-const SEED: Item[] = [{"title": "AWS SAA", "body": "Cloud architect associate", "status": "Active"}].map((x: any, i: number) => ({
-  id: String(x.id ?? i + 1),
-  title: x.title,
-  body: x.body,
-  status: x.status,
-  createdAt: x.createdAt ?? Date.now() - i * 86400000,
-}));
-
-const FIELDS = [{"key": "title", "label": "Title", "type": "text"}, {"key": "body", "label": "Details", "type": "textarea"}, {"key": "status", "label": "Status", "type": "select", "options": ["Draft", "Active", "Done"]}] as { key: "title" | "body" | "status"; label: string; type: string; options?: string[] }[];
-
 export default function Home() {
-  const [items, setItems] = useLocalStorage<Item[]>("certs-v1", SEED);
+  const [credentials, setCredentials] = useLocalStorage<Credential[]>("certs-v2", SEED);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(FIELDS.map((f) => [f.key, f.options?.[0] ?? ""]))
-  );
+  const [filter, setFilter] = useState<"All" | Credential["status"]>("All");
+  const [draft, setDraft] = useState({ title: "", issuer: "", year: "2026", status: "In progress" as Credential["status"] });
+  const visible = useMemo(() => credentials.filter((credential) => (filter === "All" || credential.status === filter) && `${credential.title} ${credential.issuer} ${credential.year}`.toLowerCase().includes(query.toLowerCase())), [credentials, filter, query]);
 
-  const filtered = items.filter((it) =>
-    (it.title + it.body + it.status).toLowerCase().includes(query.toLowerCase())
-  );
+  const addCredential = () => {
+    if (!draft.title.trim() || !draft.issuer.trim()) return;
+    setCredentials((current) => [{ id: crypto.randomUUID(), ...draft, code: `LOCAL-${new Date().getFullYear()}` }, ...current]);
+    setDraft({ title: "", issuer: "", year: "2026", status: "In progress" });
+  };
 
-  const add = () => {
-    if (!String(draft.title || "").trim()) return;
-    setItems((prev) => [
-      {
-        id: uid(),
-        title: draft.title || "",
-        body: draft.body || "",
-        status: draft.status || "",
-        createdAt: Date.now(),
-      },
-      ...prev,
-    ]);
-    setDraft(Object.fromEntries(FIELDS.map((f) => [f.key, f.options?.[0] ?? ""])));
+  const copyRecord = async (credential: Credential) => {
+    try { await navigator.clipboard.writeText(`${credential.title} — ${credential.issuer} (${credential.year})\nRecord: ${credential.code}`); } catch { /* Clipboard is optional. */ }
   };
 
   return (
-    <Shell title="Certificates" subtitle="List certifications and credentials.">
-      <div className="mb-4 flex flex-wrap gap-2">
-        <input className={`${inputClass} max-w-sm`} placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <span className="self-center text-sm text-zinc-500">{filtered.length} items</span>
+    <main className="passport-page">
+      <span className="contract-mark" dangerouslySetInnerHTML={{ __html: "<!-- THESIS: credentials are a private passport ledger; FINISH: issue, verify, filter, and copy records without inflating claims -->" }} />
+      <div className="passport-shell">
+        <header className="passport-topbar"><Link href="/" className="passport-mark">PASSPORT / CREDENTIALS</Link><span>personal record · edition 01</span></header>
+        <section className="passport-hero"><div><p className="passport-kicker">a small archive of earned evidence</p><h1>Keep the proof close.</h1></div><div className="passport-seal" aria-hidden="true"><span>BOOK</span><strong>CV</strong><span>RECORD</span></div><p className="passport-deck">A credential ledger for certifications, study paths, and the details that make a claim checkable.</p></section>
+
+        <section className="passport-layout" aria-labelledby="ledger-heading">
+          <div className="ledger-column"><header className="passport-heading"><div><span>01</span><h2 id="ledger-heading">Credential ledger</h2></div><strong>{visible.length} records</strong></header><div className="ledger-tools"><input aria-label="Search credentials" placeholder="Search title, issuer, year" value={query} onChange={(event) => setQuery(event.target.value)} /><div className="passport-tabs" role="group" aria-label="Filter credentials">{["All", "Verified", "In progress", "Expired"].map((state) => <button type="button" className={filter === state ? "active" : ""} key={state} onClick={() => setFilter(state as typeof filter)}>{state}</button>)}</div></div><div className="credential-list">{visible.map((credential, index) => <article className="credential" key={credential.id}><div className="credential-number">{String(index + 1).padStart(2, "0")}</div><div><div className="credential-title"><h3>{credential.title}</h3><span className={`credential-status status-${credential.status.toLowerCase().replace(" ", "-")}`}>{credential.status}</span></div><p>{credential.issuer} · {credential.year}</p><small>{credential.code}</small><div className="credential-actions"><button type="button" onClick={() => setCredentials((current) => current.map((item) => item.id === credential.id ? { ...item, status: item.status === "Verified" ? "In progress" : "Verified" } : item))}>{credential.status === "Verified" ? "Mark in progress" : "Mark verified"}</button><button type="button" onClick={() => copyRecord(credential)}>Copy record</button><button type="button" onClick={() => setCredentials((current) => current.filter((item) => item.id !== credential.id))}>Remove</button></div></div></article>)}{visible.length === 0 && <p className="empty-ledger">No credential matches this filter.</p>}</div></div>
+          <aside className="issue-panel"><header className="passport-heading"><div><span>02</span><h2>Issue a record</h2></div></header><label><span>Credential title</span><input value={draft.title} placeholder="What was earned?" onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} /></label><label><span>Issuer / source</span><input value={draft.issuer} placeholder="Who can confirm it?" onChange={(event) => setDraft((current) => ({ ...current, issuer: event.target.value }))} /></label><div className="issue-pair"><label><span>Year</span><input value={draft.year} onChange={(event) => setDraft((current) => ({ ...current, year: event.target.value }))} /></label><label><span>State</span><select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as Credential["status"] }))}><option>In progress</option><option>Verified</option><option>Expired</option></select></label></div><button type="button" className="stamp-button" onClick={addCredential}>Stamp the ledger</button><p className="issue-note">Adding a record is not independent verification. This passport stores your own record of the claim.</p></aside>
+        </section>
+        <footer className="passport-footer">Personal evidence archive · no issuer API, verification service, or third-party endorsement is implied.</footer>
       </div>
-      <div className="mb-6 grid gap-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 md:grid-cols-2">
-        {FIELDS.map((f) => (
-          <label key={f.key} className="block space-y-1">
-            <span className="text-xs font-medium text-zinc-500">{f.label}</span>
-            {f.type === "textarea" ? (
-              <textarea
-                className={`${inputClass} min-h-[72px]`}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              />
-            ) : f.type === "select" ? (
-              <select
-                className={inputClass}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              >
-                {(f.options || []).map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className={inputClass}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              />
-            )}
-          </label>
-        ))}
-        <div className="md:col-span-2">
-          <Button onClick={add}>Add</Button>
-        </div>
-      </div>
-      <ul className="space-y-2">
-        {filtered.map((it) => (
-          <li key={it.id} className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <div className="font-medium">{it.title}</div>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{it.body}</p>
-                <span className="mt-2 inline-block rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-900">{it.status}</span>
-              </div>
-              <Button variant="ghost" onClick={() => setItems((prev) => prev.filter((x) => x.id !== it.id))}>
-                Delete
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Shell>
+    </main>
   );
 }
